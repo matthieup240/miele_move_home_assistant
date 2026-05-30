@@ -1,0 +1,56 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Miele MOVE",
+        "description": "Renseigne la clé API créée dans Miele MOVE.",
+        "data": {
+          "api_key": "Clé API",
+          "base_url": "URL de base",
+          "accept_language": "Langue des libellés",
+          "max_execution_details": "Nombre de détails d'exécutions à récupérer",
+          "scan_interval_seconds": "Intervalle de mise à jour (secondes)",
+          "fast_interval_seconds": "Intervalle rapide pendant un cycle (secondes)",
+          "slow_interval_seconds": "Intervalle lent au repos (secondes)",
+          "device_ttl_seconds": "Durée de conservation d'un appareil hors ligne (secondes)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Miele MOVE",
+        "description": "La clé API a été refusée. Renseigne une nouvelle clé API.",
+        "data": {
+          "api_key": "Clé API"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de se connecter à Miele MOVE.",
+      "invalid_auth": "La clé API Miele MOVE a été refusée."
+    },
+    "abort": {
+      "already_configured": "Miele MOVE est déjà configuré.",
+      "reauth_successful": "La clé API a été mise à jour."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connectivity": {
+        "name": "Connectivité"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Miele MOVE",
+        "data": {
+          "max_execution_details": "Nombre de détails d'exécutions à récupérer",
+          "scan_interval_seconds": "Intervalle de mise à jour (secondes)",
+          "fast_interval_seconds": "Intervalle rapide pendant un cycle (secondes)",
+          "slow_interval_seconds": "Intervalle lent au repos (secondes)",
+          "device_ttl_seconds": "Durée de conservation d'un appareil hors ligne (secondes)"
+        }
+      }
+    }
+  }
+}

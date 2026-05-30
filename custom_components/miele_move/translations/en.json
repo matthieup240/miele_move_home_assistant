@@ -1,0 +1,56 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Miele MOVE",
+        "description": "Enter the API key created in Miele MOVE.",
+        "data": {
+          "api_key": "API key",
+          "base_url": "Base URL",
+          "accept_language": "Label language",
+          "max_execution_details": "Number of execution details to fetch",
+          "scan_interval_seconds": "Update interval (seconds)",
+          "fast_interval_seconds": "Fast interval during a cycle (seconds)",
+          "slow_interval_seconds": "Slow interval when idle (seconds)",
+          "device_ttl_seconds": "How long to keep an offline device (seconds)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Miele MOVE",
+        "description": "The API key was rejected. Enter a new API key.",
+        "data": {
+          "api_key": "API key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to Miele MOVE.",
+      "invalid_auth": "The Miele MOVE API key was rejected."
+    },
+    "abort": {
+      "already_configured": "Miele MOVE is already configured.",
+      "reauth_successful": "The API key has been updated."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connectivity": {
+        "name": "Connectivity"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Miele MOVE options",
+        "data": {
+          "max_execution_details": "Number of execution details to fetch",
+          "scan_interval_seconds": "Update interval (seconds)",
+          "fast_interval_seconds": "Fast interval during a cycle (seconds)",
+          "slow_interval_seconds": "Slow interval when idle (seconds)",
+          "device_ttl_seconds": "How long to keep an offline device (seconds)"
+        }
+      }
+    }
+  }
+}
