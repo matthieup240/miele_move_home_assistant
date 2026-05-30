@@ -1,12 +1,12 @@
 {
   "domain": "miele_move",
   "name": "Miele MOVE",
-  "codeowners": ["@<OWNER>"],
+  "codeowners": ["@matthieup240"],
   "config_flow": true,
-  "documentation": "https://github.com/<OWNER>/<REPO>",
+  "documentation": "https://github.com/matthieup240/miele_move_home_assistant",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/<OWNER>/<REPO>/issues",
+  "issue_tracker": "https://github.com/matthieup240/miele_move_home_assistant/issues",
   "requirements": [],
   "version": "0.2.0"
 }
