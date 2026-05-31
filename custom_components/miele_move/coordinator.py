@@ -52,6 +52,7 @@ from .helpers import (
     infer_model,
     is_device_active,
     iter_executions,
+    merge_refreshed_cycle_flat,
     stable_flat,
 )
 from .policy import next_update_interval_seconds, should_refresh_history
@@ -396,13 +397,12 @@ def _with_refreshed_cycle(
     refreshed = dict(previous_entry)
     refreshed["executions"] = executions_payload
     refreshed["execution_details"] = execution_details
-    flat = {
-        key: value
-        for key, value in previous_entry.get("flat", {}).items()
-        if not key.startswith("latest_cycle.")
-    }
-    flat.update(flatten_scalars({"latest_cycle": summary}))
-    refreshed["flat"] = flat
+    # Preserve the entity schema across the refresh: latest_cycle.* paths the
+    # new summary no longer carries (e.g. a not-yet-finalized duration) stay as
+    # None instead of being dropped, so their entities are never orphaned.
+    refreshed["flat"] = merge_refreshed_cycle_flat(
+        previous_entry.get("flat", {}), summary
+    )
     return refreshed
 
 

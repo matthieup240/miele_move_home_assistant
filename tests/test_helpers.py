@@ -69,3 +69,34 @@ def test_stable_flat_empty_inputs():
 
 def test_stable_flat_empty_new_keeps_all_previous_as_none():
     assert helpers.stable_flat({}, {"a": 1, "b": 2}) == {"a": None, "b": None}
+
+
+# --------------------------------------------------------------------------- #
+# merge_refreshed_cycle_flat — schema-stable refresh of the last-cycle subtree
+# --------------------------------------------------------------------------- #
+
+
+def test_merge_refreshed_cycle_flat_keeps_dropped_field_as_none():
+    # Regression: when a disappeared appliance's last cycle is refetched and the
+    # freshly finalized summary no longer carries `duration` (cloud still
+    # stabilizing it), the path must stay in the schema as None, not vanish —
+    # otherwise the "Duree dernier cycle" entity is orphaned after a restart.
+    previous = {
+        "device.status": "off",
+        "latest_cycle.program_name": "Coton",
+        "latest_cycle.duration": 5400,
+    }
+    summary = {"program_name": "Coton 40", "final_status": "completed"}
+    result = helpers.merge_refreshed_cycle_flat(previous, summary)
+    assert result["latest_cycle.duration"] is None  # preserved, not dropped
+    assert result["latest_cycle.program_name"] == "Coton 40"  # updated value
+    assert result["latest_cycle.final_status"] == "completed"  # newly added
+    assert result["device.status"] == "off"  # non-cycle keys untouched
+
+
+def test_merge_refreshed_cycle_flat_sets_duration_when_present():
+    previous = {"latest_cycle.duration": None}
+    summary = {"program_name": "Coton", "duration": 4560}
+    result = helpers.merge_refreshed_cycle_flat(previous, summary)
+    assert result["latest_cycle.duration"] == 4560
+    assert result["latest_cycle.program_name"] == "Coton"

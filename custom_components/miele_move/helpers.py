@@ -155,6 +155,27 @@ def stable_flat(new_flat: dict[str, Any], previous_flat: dict[str, Any]) -> dict
     return {**{key: None for key in previous_flat}, **new_flat}
 
 
+def merge_refreshed_cycle_flat(
+    previous_flat: dict[str, Any], summary: dict[str, Any]
+) -> dict[str, Any]:
+    """Merge a refreshed last-cycle summary into a device's flat schema.
+
+    Used when an appliance left the /devices listing and only its last-cycle
+    subtree is refetched. Like `stable_flat`, this preserves a monotonic entity
+    schema: `latest_cycle.*` paths seen before are kept (as None when the
+    refreshed summary no longer carries them, e.g. a `duration` the cloud has
+    not stabilized yet) instead of being dropped. Without this an entity such as
+    "Duree dernier cycle" would be orphaned and go unavailable after a restart.
+    """
+    new_cycle_flat = flatten_scalars({"latest_cycle": summary})
+    non_cycle = {
+        key: value
+        for key, value in previous_flat.items()
+        if not key.startswith("latest_cycle.")
+    }
+    return stable_flat({**non_cycle, **new_cycle_flat}, previous_flat)
+
+
 def nested_get(payload: dict[str, Any], path: tuple[str, ...]) -> Any:
     """Return a nested value from a dict."""
     current: Any = payload
