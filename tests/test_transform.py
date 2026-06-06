@@ -114,12 +114,24 @@ def test_build_current_program_summary_dryer_fields():
                 "type": "TD",
                 "airTemperatureTarget": 60,
                 "residualMoistureTarget": 5,
+                # Official Extra schema: a dryer extra carries type + name.
+                "extras": [{"type": "GENTLE", "name": "Délicat"}],
             }
         }
     }
     summary = transform.build_current_program_summary(details)
     assert summary["air_temperature_target"] == 60
     assert summary["residual_moisture_target"] == 5
+    # The readable `name` wins over the `type` code.
+    assert summary["options"] == "Délicat"
+
+
+def test_option_names_falls_back_to_type_code():
+    # Defensive: if the API omits the (schema-required) localized `name`, the
+    # `type` code keeps the "Options" entity populated rather than empty.
+    assert transform._option_names([{"type": "ANTI_CREASE"}]) == "ANTI_CREASE"
+    # `name` still takes priority when present.
+    assert transform._option_names([{"type": "GENTLE", "name": "gentle"}]) == "gentle"
 
 
 # --------------------------------------------------------------------------- #
@@ -156,6 +168,17 @@ def test_build_latest_cycle_summary_maps_execution_fields():
     assert summary["water_consumption"] == 42
     assert summary["cold_water_consumption"] == 30
     assert summary["warm_water_consumption"] == 12
+
+
+def test_build_latest_cycle_summary_expands_program_name_abbreviation():
+    # Miele returns the abbreviated "Couette synth." -> expand to the full label.
+    for raw in ("Couette synth.", "Couette synth", "couette synth."):
+        summary = transform.build_latest_cycle_summary({"programName": raw}, {})
+        assert summary["program_name"] == "Couette synthétique"
+
+    # Unknown program names are left untouched.
+    summary = transform.build_latest_cycle_summary({"programName": "Coton 40"}, {})
+    assert summary["program_name"] == "Coton 40"
 
 
 def test_build_latest_cycle_summary_duration_fallback_from_start_stop():
@@ -277,6 +300,21 @@ def test_unit_for_path():
     assert transform.unit_for_path("current_program.remaining_time") is None
 
 
+def test_unit_for_path_duration_keys_carry_no_unit():
+    # Regression: "duration" contains the substring "ratio", which must not be
+    # treated as a percentage ratio. A formatted-string duration with unit "%"
+    # and an implicit measurement state class breaks the HA sensor.
+    assert transform.unit_for_path("latest_cycle.duration") is None
+    assert transform.unit_for_path("current_program.remaining_duration") is None
+    assert transform.state_class_for_path("latest_cycle.duration") is None
+
+
+def test_unit_for_path_real_ratio_keys_are_percentages():
+    assert transform.unit_for_path("current_program.load_ratio") == "%"
+    assert transform.unit_for_path("current_program.salt_container_ratio") == "%"
+    assert transform.unit_for_path("current_program.rinse_aid_container_ratio") == "%"
+
+
 def test_value_class_for_path():
     assert transform.value_class_for_path("current_program.started_at") == "datetime"
     assert transform.value_class_for_path("current_program.remaining_time") == "duration"
@@ -291,6 +329,9 @@ def test_is_diagnostic():
     assert transform.is_diagnostic("current_program.program_name") is False
     # The device name duplicates the HA device name -> diagnostic.
     assert transform.is_diagnostic("device.name") is True
+    # The appliance location is low-value -> diagnostic.
+    assert transform.is_diagnostic("device.location.name") is True
+    assert transform.is_diagnostic("device.location.id") is True
 
 
 def test_disabled_by_default():
@@ -304,6 +345,20 @@ def test_disabled_by_default():
     # Model and product group duplicate the HA device metadata -> hidden.
     assert transform.disabled_by_default("device.techType") is True
     assert transform.disabled_by_default("device.productGroup") is True
+    # The location entity is hidden by default (diagnostic, not visible).
+    assert transform.disabled_by_default("device.location.name") is True
+
+
+def test_state_class_consumption_is_total_for_bar_chart():
+    # Per-cycle consumption renders as bars (HA "metered entity") rather than a
+    # flat measurement line: state class TOTAL instead of MEASUREMENT.
+    assert transform.state_class_for_path("latest_cycle.water_consumption") == "total"
+    assert transform.state_class_for_path("latest_cycle.energy_consumption") == "total"
+    assert transform.state_class_for_path("latest_cycle.cold_water_consumption") == "total"
+    assert transform.state_class_for_path("latest_cycle.warm_water_consumption") == "total"
+    # Live measurements stay as measurement (line chart).
+    assert transform.state_class_for_path("current_program.temperature_current") == "measurement"
+    assert transform.state_class_for_path("current_program.water_volume") == "measurement"
 
 
 # --------------------------------------------------------------------------- #
@@ -328,6 +383,32 @@ def test_format_duration_minutes_boundaries():
     assert transform.format_duration_minutes(59 * 60) == "59 min"
     assert transform.format_duration_minutes(65 * 60) == "1 h 5 min"
     assert transform.format_duration_minutes(None) is None
+
+
+# --------------------------------------------------------------------------- #
+# water_volume: drop the appliance's non-reset accumulator residual
+# --------------------------------------------------------------------------- #
+
+
+def test_native_value_water_volume_keeps_plausible_cycle_values():
+    # A real wash cycle accumulates a few tens of litres -> kept as-is.
+    assert transform.native_value_for_path("current_program.water_volume", 0.0) == 0.0
+    assert transform.native_value_for_path("current_program.water_volume", 45.6) == 45.6
+    assert transform.native_value_for_path("current_program.water_volume", 51.8) == 51.8
+
+
+def test_native_value_water_volume_drops_implausible_residual():
+    # At the first program after an overnight idle, the appliance reports a
+    # stale, non-reset "accumulated water volume" residual (~2045/2293 L) that
+    # is physically impossible for one cycle -> dropped to None (unknown).
+    assert transform.native_value_for_path("current_program.water_volume", 2293.7) is None
+    assert transform.native_value_for_path("current_program.water_volume", 2045.0) is None
+
+
+def test_native_value_water_volume_ceiling_boundary():
+    ceiling = transform.WATER_VOLUME_MAX_LITERS
+    assert transform.native_value_for_path("current_program.water_volume", ceiling) == ceiling
+    assert transform.native_value_for_path("current_program.water_volume", ceiling + 0.1) is None
 
 
 def test_native_value_datetime_french_absolute_format():

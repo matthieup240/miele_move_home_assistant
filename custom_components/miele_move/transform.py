@@ -22,6 +22,14 @@ from typing import Any
 # Value used by Miele for unsupported / not-currently-available fields.
 MISSING_SENTINEL = -32768
 
+# Physically implausible ceiling (litres) for one program's accumulated water.
+# WashingProgramDetails.waterVolume is an "accumulated" counter the appliance
+# does not reset at the first program after an overnight idle: it reports a
+# stale residual (observed ~2045-2337 L) that then drops back to 0. A real home
+# wash cycle stays well under this, so readings above the ceiling are dropped
+# (-> unknown) rather than displayed and fed into long-term statistics.
+WATER_VOLUME_MAX_LITERS = 150
+
 # --------------------------------------------------------------------------- #
 # Durations
 # --------------------------------------------------------------------------- #
@@ -148,6 +156,22 @@ def translate_status(value: Any) -> Any:
     return _STATUS_TRANSLATIONS.get(value.strip().lower(), value)
 
 
+# Program-name overrides: Miele returns abbreviated French labels for some
+# programs. Keyed by a normalized form (lowercased, trailing period/spaces
+# stripped) so capitalization and punctuation variants all match.
+_PROGRAM_NAME_TRANSLATIONS = {
+    "couette synth": "Couette synthétique",
+}
+
+
+def translate_program_name(value: Any) -> Any:
+    """Expand known abbreviated Miele program names; pass others through."""
+    if not isinstance(value, str):
+        return value
+    key = value.strip().rstrip(".").strip().lower()
+    return _PROGRAM_NAME_TRANSLATIONS.get(key, value)
+
+
 # --------------------------------------------------------------------------- #
 # Consumption extraction
 # --------------------------------------------------------------------------- #
@@ -229,7 +253,7 @@ def build_current_program_summary(
         return {}
 
     summary: dict[str, Any] = {
-        "program_name": program.get("name"),
+        "program_name": translate_program_name(program.get("name")),
         "phase": program.get("phaseName"),
         "program_id": program.get("id"),
         "started_at": program.get("startedAt"),
@@ -279,7 +303,9 @@ def _option_names(raw: Any) -> str | None:
         if isinstance(option, str) and option:
             names.append(option)
         elif isinstance(option, dict):
-            for field in ("name", "value_localized", "localized", "label", "value"):
+            # `name` is the readable label (official Extra schema); `type` is the
+            # uppercase code, kept as a last resort so the entity is never empty.
+            for field in ("name", "value_localized", "localized", "label", "value", "type"):
                 value = option.get(field)
                 if isinstance(value, str) and value:
                     names.append(value)
@@ -398,6 +424,8 @@ def build_latest_cycle_summary(
 
     summary: dict[str, Any] = {}
     _set_first(summary, "program_name", sources, ("programName",))
+    if "program_name" in summary:
+        summary["program_name"] = translate_program_name(summary["program_name"])
     _set_first(summary, "final_status", sources, ("programStatus",))
     _set_first(summary, "sync_status", sources, ("syncStatus",))
     _set_first(summary, "started_at", sources, ("startedAt",))
@@ -513,7 +541,7 @@ _EXACT_LABELS: dict[str, str] = {
     "currentprogram.timestamp": "Horodatage",
     "currentprogram.phasename": "Phase",
     # Latest cycle extra
-    "latestcycle.syncstatus": "État de synchronisation",
+    "latestcycle.syncstatus": "État de synchronisation dernier cycle",
     # Latest cycle (history)
     "latestcycle.programname": "Programme dernier cycle",
     "latestcycle.finalstatus": "État dernier cycle",
@@ -578,7 +606,9 @@ _DIAGNOSTIC_KEYS = {
 }
 _ENERGY_KEYS = {"energyconsumption"}
 _WATER_KEYS = {"waterconsumption", "coldwaterconsumption", "warmwaterconsumption", "vewaterconsumption"}
-_MEASUREMENT_KEYS = _ENERGY_KEYS | _WATER_KEYS
+# Per-cycle consumption totals: exposed with state class TOTAL so Home Assistant
+# renders them as bars (a "metered entity") instead of a flat measurement line.
+_CONSUMPTION_TOTAL_KEYS = _ENERGY_KEYS | _WATER_KEYS
 
 
 def _last_key(path: str) -> str:
@@ -616,7 +646,10 @@ def unit_for_path(path: str) -> str | None:
         return "tr/min"
     if last.endswith("weight"):
         return "kg"
-    if "ratio" in last or "moisture" in last:
+    # `endswith` (not substring): the ratio fields all end in "ratio"
+    # (loadRatio / saltContainerRatio / rinseAidContainerRatio), whereas a
+    # substring match would wrongly catch "du-ratio-n" and tag durations "%".
+    if last.endswith("ratio") or "moisture" in last:
         return "%"
     return None
 
@@ -635,10 +668,11 @@ def device_class_for_path(path: str) -> str | None:
 
 
 def state_class_for_path(path: str) -> str | None:
-    """Return 'measurement' for numeric live/consumption sensors."""
+    """Return the state class hint: 'total' for per-cycle consumption (bars),
+    'measurement' for live numeric sensors (line), else None."""
     last = _last_key(path)
-    if last in _MEASUREMENT_KEYS:
-        return "measurement"
+    if last in _CONSUMPTION_TOTAL_KEYS:
+        return "total"
     if unit_for_path(path) in ("°C", "tr/min", "kg", "%", "L", "mm"):
         return "measurement"
     return None
@@ -647,11 +681,17 @@ def state_class_for_path(path: str) -> str | None:
 # Diagnostic but kept visible (not disabled by default).
 _VISIBLE_DIAGNOSTIC_PATHS = {"device.name"}
 
+# Diagnostic AND hidden by default: low-value fields the user does not want
+# surfaced on the device page (e.g. the appliance location).
+_HIDDEN_DIAGNOSTIC_PATHS = {"device.location.name", "device.location.id"}
+
 
 def is_diagnostic(path: str) -> bool:
     """Return True for fields that belong to the diagnostic category."""
     normalized = _normalized_path(path)
     if normalized in _VISIBLE_DIAGNOSTIC_PATHS:
+        return True
+    if normalized in _HIDDEN_DIAGNOSTIC_PATHS:
         return True
     if normalized.startswith("details."):
         return True
@@ -672,7 +712,18 @@ def native_value_for_path(path: str, value: Any) -> Any:
         return format_duration_minutes(value)
     if _last_key(path) in _STATUS_KEYS:
         return translate_status(value)
+    if _last_key(path) == "watervolume" and _exceeds_water_volume_ceiling(value):
+        return None
     return value
+
+
+def _exceeds_water_volume_ceiling(value: Any) -> bool:
+    """True for a water-volume reading above the physical per-cycle ceiling."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value > WATER_VOLUME_MAX_LITERS
+    )
 
 
 def _parse_datetime(value: Any) -> datetime | None:

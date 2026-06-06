@@ -28,7 +28,10 @@ _DEVICE_CLASSES = {
     "weight": SensorDeviceClass.WEIGHT,
     "humidity": SensorDeviceClass.HUMIDITY,
 }
-_STATE_CLASSES = {"measurement": SensorStateClass.MEASUREMENT}
+_STATE_CLASSES = {
+    "measurement": SensorStateClass.MEASUREMENT,
+    "total": SensorStateClass.TOTAL,
+}
 
 
 async def async_setup_entry(
