@@ -714,7 +714,25 @@ def native_value_for_path(path: str, value: Any) -> Any:
         return translate_status(value)
     if _last_key(path) == "watervolume" and _exceeds_water_volume_ceiling(value):
         return None
+    if _is_percent_fraction(path, value):
+        # Miele reports ratios and residual moisture as 0-1 fractions
+        # (0.07 -> 7 %); the % entities must show the scaled percentage.
+        return round(value * 100)
     return value
+
+
+def _is_percent_fraction(path: str, value: Any) -> bool:
+    """True for a %-typed field whose value is a 0-1 fraction to scale to percent.
+
+    The guard ``0 <= value <= 1`` keeps a value already expressed as a percent
+    (> 1, e.g. some firmware) from being multiplied by 100 a second time.
+    """
+    return (
+        unit_for_path(path) == "%"
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and 0 <= value <= 1
+    )
 
 
 def _exceeds_water_volume_ceiling(value: Any) -> bool:

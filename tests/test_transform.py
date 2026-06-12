@@ -411,6 +411,48 @@ def test_native_value_water_volume_ceiling_boundary():
     assert transform.native_value_for_path("current_program.water_volume", ceiling + 0.1) is None
 
 
+# --------------------------------------------------------------------------- #
+# ratio / moisture: Miele reports 0-1 fractions, Home Assistant shows percent
+# --------------------------------------------------------------------------- #
+
+
+def test_native_value_residual_moisture_fraction_to_percent():
+    # Miele returns residual moisture as a 0-1 fraction (0.07), but the entity
+    # is a humidity sensor in %, so it must read 7 % and not 0.07 %.
+    assert transform.native_value_for_path(
+        "current_program.residual_moisture_current", 0.07
+    ) == 7
+    assert transform.native_value_for_path(
+        "current_program.residual_moisture_target", 0.05
+    ) == 5
+
+
+def test_native_value_ratio_fraction_to_percent():
+    # loadRatio / saltContainerRatio / rinseAidContainerRatio are 0-1 fractions.
+    assert transform.native_value_for_path("current_program.load_ratio", 0.65) == 65
+    assert transform.native_value_for_path("current_program.salt_container_ratio", 1.0) == 100
+    assert transform.native_value_for_path(
+        "current_program.rinse_aid_container_ratio", 0.8
+    ) == 80
+
+
+def test_native_value_percent_fraction_zero_and_none():
+    assert transform.native_value_for_path("current_program.load_ratio", 0.0) == 0
+    assert transform.native_value_for_path("current_program.residual_moisture_current", None) is None
+
+
+def test_native_value_percent_already_scaled_is_left_untouched():
+    # Defensive: a value already expressed as a percent (> 1) must not be scaled
+    # by 100 again (no double conversion to 700 %).
+    assert transform.native_value_for_path("current_program.residual_moisture_current", 7) == 7
+
+
+def test_native_value_duration_is_not_scaled_as_percent():
+    # Regression: "duration" contains the substring "ratio" but is a formatted
+    # string, never a percentage -> must never be multiplied by 100.
+    assert transform.native_value_for_path("latest_cycle.duration", 90 * 60) == "1 h 30 min"
+
+
 def test_native_value_datetime_french_absolute_format():
     # Must be an absolute French string "22 mai 2026 à 10:00", never a relative
     # date, so Home Assistant shows the real date/time instead of "last week".
